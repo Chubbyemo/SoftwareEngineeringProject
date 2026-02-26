@@ -1,11 +1,8 @@
 # Brändi Dog 
+For the Software Engineering course in ETH.
 
 *Where marbles race, cards rule, and friendships are temporarily ruined!*
 
-![Brändi-Dog-logo](./assets/braendi_dog_logo.png)
-
-[![Tests](https://gitlab.inf.ethz.ch/course-secse-2025/the-hounds/-/raw/site/testing-badge.svg)](https://gitlab.inf.ethz.ch/course-secse-2025/the-hounds/-/pipelines)
-[![Coverage](https://gitlab.inf.ethz.ch/course-secse-2025/the-hounds/-/raw/site/coverage-badge.svg)](https://gitlab.inf.ethz.ch/course-secse-2025/the-hounds/-/pipelines)
 
 This project is a C++ implementation of the swiss game Brändi Dog. It is designed for 2-4 players.
 
@@ -351,3 +348,4 @@ The Brändi Dog project was developed by the **The Hounds** team:
 - **Sophie Xie**
 
 ---
+
