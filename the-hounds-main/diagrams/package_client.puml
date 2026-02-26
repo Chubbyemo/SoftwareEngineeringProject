@@ -1,0 +1,156 @@
+@startuml Client_Package_Overview
+!theme plain
+title BrändiDog - Client Package Overview
+scale 0.85
+
+enum ClientState {
+    LOBBY
+    TRANSITIONING
+    GAME
+}
+
+enum MovePhase {
+    IDLE
+    CARD_SELECTED
+    MARBLE_SELECTED
+    DESTINATION_SELECTED
+    SEVEN_PARTIAL
+}
+
+class PlayerStatus {
+    + id: size_t
+    + name: string
+    + isReady: bool
+}
+
+class Client {
+    - connection: tcp_connector
+    - listenerThread: thread
+    - state_: ClientState
+    - playerIndex: int
+    - playerList_: array<PlayerStatus, 4>
+    --
+    + Client(address, port, name)
+    + sendAction(json)
+    + setUpdateCallback(callback)
+    --
+    **Game Actions**
+    + sendReady()
+    + sendStartGame()
+    + sendPlayCard(move)
+    + sendSkipTurn()
+    --
+    **State Transitions**
+    + beginTransitionToGame()
+    + completeTransitionToGame()
+    --
+    + getPlayerIndex(): int
+    + areAllPlayersReady(): bool
+}
+
+class ConnectionFrame {
+    - serverAddressInput: wxTextCtrl
+    - usernameInput: wxTextCtrl
+    --
+    + ConnectionFrame(title)
+    - OnConnect(event)
+}
+
+class LobbyFrame {
+    - client: Client*
+    - playerListBox: wxListBox
+    - readyButton: wxButton
+    --
+    + LobbyFrame(title, client)
+    + updatePlayerList()
+    - OnReady(event)
+    - OnStartGame(event)
+}
+
+class MainGameFrame {
+    - gameState_: GameState
+    - moveController: MovePhaseController*
+    - client: Client*
+    --
+    **Board & Display**
+    - boardSpots: vector<wxPoint>
+    - playerHandCards: vector<wxStaticBitmap*>
+    - highlightedCardIndex: int
+    --
+    + MainGameFrame(title, client, numPlayers)
+    + updateGameState(message)
+    - OnPaint(event)
+    - OnCardClick(event)
+    - OnBoardClick(event)
+    --
+    **Rendering**
+    - drawBoard(dc)
+    - drawMarbles(dc)
+    - highlightLegalMoves(dc)
+}
+
+class MovePhaseController {
+    - gameState_: GameState*
+    - playerIndex_: size_t
+    - currentPhase_: MovePhase
+    --
+    **Phase State**
+    - selectedCard_: optional<Card>
+    - selectedMarble_: optional<MarbleIdentifier>
+    - pendingMove_: Move
+    - sevenRemainder_: int
+    --
+    + selectCard(cardIdx): bool
+    + selectMarble(marbleId): bool
+    + selectDestination(pos): bool
+    + confirmMove(): optional<Move>
+    + cancelMove()
+    --
+    + getCurrentPhase(): MovePhase
+    + getLegalMovesForCard(): vector<Move>
+    + canConfirmMove(): bool
+}
+
+' Relationships
+Client --> ClientState
+Client *-- "4" PlayerStatus
+
+ConnectionFrame ..> Client : creates
+ConnectionFrame --> LobbyFrame : opens
+
+LobbyFrame --> Client
+LobbyFrame --> MainGameFrame : opens
+
+MainGameFrame --> Client
+MainGameFrame *-- MovePhaseController
+
+MovePhaseController --> MovePhase
+MovePhaseController ..> GameState
+MovePhaseController ..> Move
+
+note right of Client
+  Manages TCP connection
+  - Routes messages by state
+  - Buffers during transitions
+  - Async listener thread
+end note
+
+note bottom of MainGameFrame
+  Main game GUI:
+  - Board rendering (wxWidgets)
+  - Player hands & cards
+  - Legal move highlighting
+  - Turn indicators
+end note
+
+note right of MovePhaseController
+  **Move workflow:**
+  1. Select card
+  2. Select marble
+  3. Select destination
+  4. Validate & send
+  
+  Handles Seven splits & Joker
+end note
+
+@enduml

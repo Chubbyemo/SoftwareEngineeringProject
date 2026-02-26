@@ -1,0 +1,166 @@
+@startuml Server_Package_Overview
+!theme plain
+title BrändiDog - Server Package Overview
+
+class Server {
+    **Connection Management**
+    - acceptor_: tcp_acceptor
+    - serverAddress_: string
+    - port_: int
+    - connectionTimeout_: chrono::seconds
+    --
+    **Player Management**
+    - playersMutex_: mutex
+    - numPlayers_: int
+    - players_: array<ClientInfo, 4>
+    - {static} idAssignmentOrder: vector<int>
+    --
+    **Game State**
+    - game_: unique_ptr<GameState>
+    - gameRunning_: bool
+    - running_: bool
+    - shuttingDown_: atomic<bool>
+    --
+    **Threading**
+    - clientThreads_: vector<thread>
+    - threadsMutex_: mutex
+    --
+    + Server(address: string, port: int, timeout: int)
+    + ~Server()
+    --
+    **Lifecycle Methods**
+    + start()
+    + stop()
+    + run()
+    --
+    **Player Management**
+    - waitForPlayers()
+    - handleNewConnection(sock: tcp_socket): int
+    - onSuccessfulConnection()
+    - isValidName(name: string): bool
+    - checkConnections()
+    --
+    **Game Flow**
+    - startGame()
+    - newRound()
+    - dealCards()
+    - handleGameEnd()
+    --
+    **Message Handling**
+    - handleNewMessage(playerId: int)
+    - handlePlayCard(handIdx: size_t, playerId: int, req: PlayCardRequestMessage)
+    - handleSkipTurn(playerId: int)
+    - handleDisconnect(playerId: size_t)
+    --
+    **Broadcasting**
+    - broadcastPlayerList()
+    - broadcastGameState()
+    - broadcastMessage(message: json)
+    - messagePlayer(playerId: int, message: json)
+    --
+    **Utilities**
+    - getPlayerNames(): array<optional<string>, 4>
+    + getNumPlayers(): int
+    + setPlayerReady(playerId: int)
+    + areAllPlayersReady(): bool
+    --
+    **Logging**
+    - log(message: string)
+    - logError(message: string)
+    - logPlayerAction(playerId: int, action: json)
+}
+
+class ClientInfo {
+    + threadId: int
+    + id: int
+    + socket: unique_ptr<tcp_socket>
+    + name: string
+    + isActive: bool
+    + isReady: bool
+    --
+    + ClientInfo()
+    + ClientInfo(ClientInfo&&)
+    + operator=(ClientInfo&&)
+}
+
+' Server uses these external components
+class GameState {
+}
+
+class Message {
+}
+
+' Composition
+Server *-- "4" ClientInfo : manages
+Server *-- "1" GameState : owns
+
+' Dependencies
+Server ..> Message : sends/receives
+Server ..> tcp_acceptor : accepts connections
+Server ..> tcp_socket : communicates
+
+note right of Server
+  Main server class managing:
+  - Client connections (up to 4 players)
+  - Game state and logic
+  - Message routing and validation
+  - Turn management
+  - Round and game lifecycle
+end note
+
+note bottom of ClientInfo
+  Per-player connection data
+  - Non-copyable (move-only)
+  - Manages socket lifetime
+  - Tracks ready state
+  - Thread-safe access via mutex
+end note
+
+note as ServerFlow
+  **Server Flow:**
+  
+  1. **Initialization**
+     - Start TCP acceptor
+     - Wait for 2-4 players
+  
+  2. **Lobby Phase**
+     - Accept connections
+     - Validate player names
+     - Broadcast player list
+     - Wait for all ready
+  
+  3. **Game Loop**
+     - Initialize GameState
+     - Deal cards for round
+     - Process player moves
+     - Validate and execute moves
+     - Update and broadcast state
+     - Check round/game end
+  
+  4. **Cleanup**
+     - Broadcast final results
+     - Close connections
+     - Join client threads
+end note
+
+ServerFlow .. Server
+
+note as MessageFlow
+  **Message Flow:**
+  
+  Client → Server:
+  - REQ_CONNECT (name)
+  - REQ_READY
+  - REQ_START_GAME
+  - REQ_PLAY_CARD (move)
+  - REQ_SKIP_TURN
+  
+  Server → Client:
+  - RESP_* (responses)
+  - BRDC_* (broadcasts)
+  - PRIV_CARDS_DEALT (private)
+end note
+
+MessageFlow .. Server
+
+@enduml

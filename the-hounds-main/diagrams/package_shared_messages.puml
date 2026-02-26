@@ -1,0 +1,137 @@
+@startuml Messages_Package_Overview
+!theme plain
+title BrändiDog - Messages Package Overview
+left to right direction
+scale 0.8
+
+abstract class Message {
+    + {abstract} getMessageType(): MessageType
+    + {abstract} toJson(): json
+    + {static} fromJson(json): unique_ptr<Message>
+}
+
+abstract class ClientRequest {
+    # playerId_: size_t
+}
+
+abstract class ServerResponse {
+    # success_: bool
+    # errorMsg_: string
+}
+
+abstract class BroadcastMessage
+
+abstract class PrivateMessage {
+    # playerId_: size_t
+}
+
+Message <|-- ClientRequest
+Message <|-- ServerResponse
+Message <|-- BroadcastMessage
+Message <|-- PrivateMessage
+
+' Client Requests (flowing right from ClientRequest)
+ClientRequest <|-- ConnectRequestMessage
+ClientRequest <|-- ReadyRequestMessage
+ClientRequest <|-- StartGameRequestMessage
+ClientRequest <|-- PlayCardRequestMessage
+ClientRequest <|-- SkipTurnRequestMessage
+
+class ConnectRequestMessage {
+    + playerName: string
+}
+
+class ReadyRequestMessage
+
+class StartGameRequestMessage
+
+class PlayCardRequestMessage {
+    + move: Move
+}
+
+class SkipTurnRequestMessage
+
+' Server Responses (flowing right from ServerResponse)
+ServerResponse <|-- ConnectResponseMessage
+ServerResponse <|-- ReadyResponseMessage
+ServerResponse <|-- StartGameResponseMessage
+ServerResponse <|-- PlayCardResponseMessage
+ServerResponse <|-- SkipTurnResponseMessage
+
+class ConnectResponseMessage {
+    + playerId: size_t
+}
+
+class ReadyResponseMessage
+
+class StartGameResponseMessage
+
+class PlayCardResponseMessage {
+    + handIndex: size_t
+}
+
+class SkipTurnResponseMessage
+
+' Broadcasts (flowing right from BroadcastMessage)
+BroadcastMessage <|-- PlayerListUpdateMessage
+BroadcastMessage <|-- GameStartMessage
+BroadcastMessage <|-- GameStateUpdateMessage
+BroadcastMessage <|-- PlayerDisconnectedMessage
+BroadcastMessage <|-- PlayerFinishedMessage
+BroadcastMessage <|-- GameResultsMessage
+
+class PlayerListUpdateMessage {
+    + playersList: vector<PlayerInfo>
+}
+
+class GameStartMessage {
+    + numPlayers: size_t
+}
+
+class GameStateUpdateMessage {
+    + gameState: GameState
+}
+
+class PlayerDisconnectedMessage {
+    + playerId: size_t
+}
+
+class PlayerFinishedMessage {
+    + playerId: size_t
+}
+
+class GameResultsMessage {
+    + rankings: array<optional<int>, 4>
+}
+
+' Private (flowing right from PrivateMessage)
+PrivateMessage <|-- CardsDealtMessage
+
+class CardsDealtMessage {
+    + cards: vector<size_t>
+}
+
+note right of Message
+  Base class for all messages
+  JSON serialization support
+end note
+
+note bottom of ClientRequest
+  Client → Server
+  Include playerId
+end note
+
+note bottom of ServerResponse
+  Server → Client
+  success + errorMsg
+end note
+
+note bottom of BroadcastMessage
+  Server → All Players
+end note
+
+note bottom of PrivateMessage
+  Server → One Player
+end note
+
+@enduml

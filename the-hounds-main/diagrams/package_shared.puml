@@ -1,0 +1,162 @@
+@startuml Shared_Package_Overview
+!theme plain
+title BrändiDog - Shared/Game Package Overview
+
+package "BraendiDog::GameTypes" {
+    enum Rank {
+        ACE
+        TWO to TEN
+        JACK
+        QUEEN
+        KING
+        JOKER
+    }
+    
+    enum Suit {
+        CLUBS
+        DIAMONDS
+        HEARTS
+        SPADES
+        JOKER
+    }
+    
+    enum BoardLocation {
+        HOME
+        TRACK
+        FINISH
+    }
+    
+    enum MoveType {
+        SIMPLE
+        SEVEN
+        SWAP
+        JOKER
+        START
+    }
+    
+    class Position {
+        + boardLocation: BoardLocation
+        + index: size_t
+        + playerID: size_t
+        --
+        + equals(other: Position): bool
+        + isInHome(): bool
+        + isInFinish(): bool
+    }
+    
+    class MarbleIdentifier {
+        + playerID: size_t
+        + marbleIdx: size_t
+    }
+    
+    class Move {
+        + cardID: size_t
+        + handIndex: size_t
+        + movements: vector<pair<MarbleIdentifier, Position>>
+        --
+        + getCardID(): size_t
+        + getHandIndex(): size_t
+        + getMovements(): vector
+    }
+}
+
+package "BraendiDog::GameObjects" {
+    class Card {
+        - rank: Rank
+        - suit: Suit
+        - moveRules: vector<pair<MoveType, int>>
+        --
+        + Card(r: Rank, s: Suit)
+        + getRank(): Rank
+        + getSuit(): Suit
+        + getMoveRules(): vector
+    }
+    
+    class Player {
+        - id: size_t
+        - name: string
+        - startField: size_t
+        - startBlocked: optional<size_t>
+        - activeInRound: bool
+        - activeInGame: bool
+        - marbles: array<Position, 4>
+        - hand: vector<size_t>
+        --
+        + Player(pID: size_t, pName: string)
+        + getId(): size_t
+        + getName(): string
+        + getMarbles(): array<Position, 4>
+        + getHand(): vector<size_t>
+        + isActiveInRound(): bool
+        + isActiveInGame(): bool
+        + setMarblePosition(idx: size_t, pos: Position)
+        + popCardFromHand(idx: size_t): size_t
+        + checkFinished(): bool
+    }
+}
+
+package "BraendiDog::GameLogic" {
+    class GameState {
+        - deck: array<Card, 54>
+        - players: array<optional<Player>, 4>
+        - currentPlayer: size_t
+        - roundStartPlayer: size_t
+        - roundCardCount: size_t
+        - lastPlayedCard: optional<size_t>
+        - leaderBoard: array<optional<int>, 4>
+        --
+        + GameState(playerNames: array<optional<string>, 4>)
+        + getDeck(): array<Card, 54>
+        + getPlayers(): array<optional<Player>, 4>
+        + getCurrentPlayer(): size_t
+        + isMyTurn(playerIdx: size_t): bool
+        --
+        **Move Validation**
+        + validateMove(card: Card, pos: Position, rule: pair): optional<vector>
+        + computeLegalMoves(): vector<Move>
+        + hasLegalMoves(): bool
+        --
+        **Game State Management**
+        + executeMove(move: Move): bool
+        + executeFold(): void
+        + endTurn(): pair<bool, bool>
+        + checkRoundEnd(): bool
+        + checkGameEnd(): bool
+        + dealCards(): map<size_t, vector<size_t>>
+    }
+}
+
+' Relationships
+Position --> BoardLocation
+MarbleIdentifier ..> Position : identifies
+Move *-- MarbleIdentifier
+Move *-- Position
+
+Card --> Rank
+Card --> Suit
+Card --> MoveType
+
+Player *-- Position : "4 marbles"
+Player o-- Card : "hand (card IDs)"
+
+GameState *-- Card : "deck of 54"
+GameState *-- Player : "up to 4 players"
+GameState ..> Move : validates/executes
+
+note right of GameState
+  Core game logic class containing:
+  - Full game state
+  - Move validation logic
+  - Turn/round/game management
+  - Serializable to JSON
+end note
+
+note right of Move
+  Represents a complete move including:
+  - Which card is played
+  - All marble movements
+  - Both active and passive marbles
+  (e.g., marbles sent home)
+end note
+
+@enduml

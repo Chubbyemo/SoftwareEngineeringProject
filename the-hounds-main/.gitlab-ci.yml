@@ -1,0 +1,242 @@
+stages:
+  - lint
+  - build
+  - docs
+  - deploy
+
+variables:
+  TESTING_BADGE_SVG: "testing-badge.svg"
+  COVERAGE_BADGE_SVG: "coverage-badge.svg"
+  CI_ENVIRONMENT_FILE: "build_env_vars.env"
+
+.create_testing_badge: &create_testing_badge
+  - |
+    echo "Creating testing badge with PASSED_TESTS=${PASSED_TESTS}, TOTAL_TESTS=${TOTAL_TESTS}"
+    if [ -z "$PASSED_TESTS" ] || [ -z "$TOTAL_TESTS" ]; then
+      echo "Error: PASSED_TESTS and TOTAL_TESTS must be set as environment variables."
+      echo "Setting defaults to avoid failure..."
+      PASSED_TESTS=0
+      TOTAL_TESTS=1
+    fi
+
+    ratio=$(echo "scale=2; $PASSED_TESTS / $TOTAL_TESTS" | bc -l)
+    echo "Test success ratio is ${ratio}"
+
+    if (( $(echo "$ratio < 0.5" | bc -l) )); then badge_color="red"
+    elif (( $(echo "$ratio < 1" | bc -l) )); then badge_color="orange"
+    else badge_color="%234c1"
+    fi
+
+    echo "Testing badge colour: ${badge_color}"
+
+    badge_label="tests"
+    badge_message="${PASSED_TESTS}%2F${TOTAL_TESTS}"
+    badge_url="https://img.shields.io/badge/${badge_label}-${badge_message}-${badge_color}.svg"
+    echo "Downloading '${badge_url}'"
+    curl -f -o ${TESTING_BADGE_SVG} "${badge_url}" || echo "Failed to download testing badge"
+
+.create_coverage_badge: &create_coverage_badge
+  - |
+    if [ -z "$COVERAGE" ]; then
+      echo "Error: COVERAGE must be set as a environment variable."
+      echo "Setting default coverage to 0.0 to avoid failure..."
+      COVERAGE=0.0
+    fi
+
+    if (( $(echo "$COVERAGE >= 95" | bc -l) )); then badge_color="%234c1"
+    elif (( $(echo "$COVERAGE >= 90" | bc -l) )); then badge_color="%23a3c51c"
+    elif (( $(echo "$COVERAGE >= 75" | bc -l) )); then badge_color="%23dfb317"
+    else badge_color="%23e05d44"
+    fi
+
+    echo "Coverage badge colour: ${badge_color}"
+
+    if (( $(echo "$COVERAGE < 0.0" | bc -l) )); then
+      badge_message="unknown"
+    else
+      badge_message=$(printf "%.2f%%25" "${COVERAGE}")
+    fi
+
+    echo "Coverage: ${COVERAGE}"
+    echo "Coverage badge message: ${badge_message}"
+
+    badge_label="coverage"
+    badge_url="https://img.shields.io/badge/${badge_label}-${badge_message}-${badge_color}.svg"
+    echo "Downloading '${badge_url}'"
+    curl -f -o ${COVERAGE_BADGE_SVG} "${badge_url}" || echo "Failed to download coverage badge"
+
+# Linter job to check C++ code quality
+lint-job:
+  stage: lint
+  image: ubuntu:24.04
+  before_script:
+    - apt-get update && apt-get install -y clang-format cmake git gnupg g++ clang && apt-get clean
+  script:
+    - clang-format -style=google --dry-run --Werror $(find src tests -name "*.cpp" -o -name "*.hpp")
+
+# Build job compiles, runs tests, generates coverage + badges (src/ only)
+build-job:
+  stage: build
+  image: ubuntu:24.04
+  coverage: '/^\s*lines:\s*([0-9.]+)%/'
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake git gnupg gcc-13 g++-13 clang libwxgtk3.2-dev libgtk-3-dev build-essential lsb-release lcov bc curl python3-venv python3-pip
+    # Ensure modern gcovr without PEP 668 issues
+    - python3 -m venv .venv
+    - . .venv/bin/activate
+    - pip install --upgrade "gcovr>=7.1"
+  script:
+    - gcovr --version
+    - g++ --version
+    - g++ --version
+    - lcov --version
+    - gcov --version
+    - |
+      if mkdir -p build && cd build && cmake -DENABLE_COVERAGE=ON -DCMAKE_CXX_COMPILER=g++-13 .. && make; then
+        echo "Compilation succeeded"
+        echo "COMPILE_STATUS=success" >> ../$CI_ENVIRONMENT_FILE
+      else
+        echo "Compilation failed"
+        echo "COMPILE_STATUS=failure" >> ../$CI_ENVIRONMENT_FILE
+        exit 1
+      fi
+
+    # Run tests to produce .gcda and JUnit XML
+    - cd ..
+    - |
+      set +e
+      ./build/test_game --gtest_output=xml:test_results.xml
+      TEST_EXIT_CODE=$?
+      echo "Test exit code was '${TEST_EXIT_CODE}'"
+      set -e
+      echo "TESTING_STATUS=$TEST_EXIT_CODE" >> $CI_ENVIRONMENT_FILE
+
+    # Parse Google Test XML for counts (for the testing badge)
+    - |
+      if [ -f test_results.xml ]; then
+        TOTAL_TESTS=$(grep '<testsuites' test_results.xml | grep -o 'tests="[0-9]*"' | grep -o '[0-9]*' || echo "0")
+        FAILED_TESTS=$(grep '<testsuites' test_results.xml | grep -o 'failures="[0-9]*"' | grep -o '[0-9]*' || echo "0")
+        ERROR_TESTS=$(grep '<testsuites' test_results.xml | grep -o 'errors="[0-9]*"' | grep -o '[0-9]*' || echo "0")
+        DISABLED_TESTS=$(grep '<testsuites' test_results.xml | grep -o 'disabled="[0-9]*"' | grep -o '[0-9]*' || echo "0")
+        TOTAL_FAILED=$((FAILED_TESTS + ERROR_TESTS))
+        PASSED_TESTS=$((TOTAL_TESTS - TOTAL_FAILED - DISABLED_TESTS))
+        SKIPPED_TESTS=$DISABLED_TESTS
+      else
+        echo "No test_results.xml found; defaulting counts"
+        TOTAL_TESTS=1; PASSED_TESTS=0; FAILED_TESTS=1; SKIPPED_TESTS=0
+      fi
+      export TOTAL_TESTS PASSED_TESTS FAILED_TESTS SKIPPED_TESTS
+
+    # Generate testing badge
+    - *create_testing_badge
+
+    # Coverage (src/ only) — XML + HTML + summary line for GitLab
+    - |
+      echo "Generating coverage report with gcovr (src/ only)..."
+      cd build
+      REPO_ABS="$(cd .. && pwd -P)"
+      SRC_ABS="$(cd ../src && pwd -P)"
+      OBJ_ABS="$(pwd -P)"
+    - ./test_game
+    - |
+      gcovr \
+        --gcov-executable gcov-13 \
+        --root "$REPO_ABS" \
+        --object-directory "$OBJ_ABS" \
+        --exclude '^.*/tests/.*' \
+        --exclude-directories '^.*/_deps($|/).*' \
+        --xml-pretty -o coverage.xml \
+        --html-details -o coverage.html \
+        --print-summary \
+        | tee gcovr_summary.txt || true
+    - cat gcovr_summary.txt
+    - |
+      COVERAGE=$(grep -Eo 'lines:\s*([0-9.]+)%' gcovr_summary.txt | grep -Eo '[0-9.]+' | head -1 || echo "0.0")
+      echo "lines: ${COVERAGE}%"
+      cd ..
+      export COVERAGE
+
+    # Generate coverage badge
+    - *create_coverage_badge
+  artifacts:
+    when: always
+    paths:
+      - ${CI_ENVIRONMENT_FILE}
+      - ${TESTING_BADGE_SVG}
+      - ${COVERAGE_BADGE_SVG}
+      - test_results.xml
+      - build/coverage.xml
+      - build/coverage.html
+    reports:
+      junit: test_results.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: build/coverage.xml
+    expire_in: 7 days
+
+# Documentation generation using Doxygen
+docs-job:
+  stage: docs
+  image: ubuntu:24.04
+  before_script:
+    - apt-get update && apt-get install -y doxygen graphviz
+  script:
+    - mkdir -p docs/html
+    - doxygen Doxyfile
+  artifacts:
+    paths:
+      - docs/html
+    expire_in: 7 days
+
+# Publish badges and docs to the 'site' branch
+deploy-artifacts:
+  stage: deploy
+  needs:
+    - job: build-job
+    - job: docs-job
+  dependencies:
+    - build-job
+    - docs-job
+  image: alpine/git
+  before_script:
+    - source ${CI_ENVIRONMENT_FILE}
+    - apk add --no-cache curl git
+    - git config --global user.name "GitLab CI"
+    - git config --global user.email "gitlab-ci@example.com"
+  script:
+    - echo "COMPILE_STATUS is '${COMPILE_STATUS}'"
+    - echo "Checking badge files existence:"
+    - ls -la *.svg || echo "No SVG files found in current directory"
+
+    - mv ${TESTING_BADGE_SVG} ../.
+    - mv ${COVERAGE_BADGE_SVG} ../.
+    - mv docs ../.
+
+    - git fetch origin
+    - |
+      if git rev-parse --verify origin/site; then
+        echo "Branch 'site' exists. Checking it out..."
+        git checkout site
+      else
+        echo "Branch 'site' does not exist. Creating it..."
+        git checkout --orphan site
+        git reset --hard
+        git clean -fd
+      fi
+
+    - rm -r docs || true
+    - mv ../${TESTING_BADGE_SVG} .
+    - mv ../${COVERAGE_BADGE_SVG} .
+    - mv ../docs docs
+
+    - git add -f ${TESTING_BADGE_SVG} ${COVERAGE_BADGE_SVG} docs/
+    - git commit --allow-empty --message "GitLab Runner Push"
+    - git push https://oauth2:${GITLAB_PUSH_TO_SITE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git site
+  when: always
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+  artifacts:
+    reports:
+      dotenv: build_env_vars.env

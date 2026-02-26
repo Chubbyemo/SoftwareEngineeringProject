@@ -1,0 +1,111 @@
+@startuml System_Architecture_Overview
+!theme plain
+title BrändiDog - Overall System Architecture
+
+package "Shared (Game Logic)" {
+    [GameState] as GS
+    [Card] as CardObj
+    [Player] as PlayerObj
+    [Move] as MoveObj
+    [Position] as PosObj
+    
+    GS *-- PlayerObj
+    GS *-- CardObj
+    PlayerObj *-- PosObj
+    MoveObj *-- PosObj
+}
+
+package "Messages" {
+    [Message] as Msg
+    [ClientRequest] as ClientReq
+    [ServerResponse] as ServerResp
+    [BroadcastMessage] as Broadcast
+    [PrivateMessage] as Private
+    
+    Msg <|-- ClientReq
+    Msg <|-- ServerResp
+    Msg <|-- Broadcast
+    Msg <|-- Private
+}
+
+package "Server Package" {
+    [Server] as Srv
+    [ClientInfo] as ClInfo
+    
+    Srv *-- ClInfo
+    Srv *-- GS
+}
+
+package "Client Package" {
+    [Client] as Cl
+    [ConnectionFrame] as ConnFrame
+    [LobbyFrame] as LobbyFrame
+    [MainGameFrame] as GameFrame
+    [MovePhaseController] as MoveCtrl
+    
+    ConnFrame ..> Cl : creates
+    LobbyFrame --> Cl : uses
+    GameFrame --> Cl : uses
+    GameFrame *-- MoveCtrl
+}
+
+' Network communication
+Cl "1" <--> "1" Srv : TCP Socket\nJSON Messages
+
+' Message usage
+Cl ..> Msg : sends/receives
+Srv ..> Msg : sends/receives
+
+' Game state usage
+Cl ..> GS : local copy
+GameFrame ..> GS : displays
+MoveCtrl ..> GS : queries
+
+' Move construction
+MoveCtrl ..> MoveObj : constructs
+Cl ..> MoveObj : sends in\nPlayCardRequest
+Srv ..> MoveObj : validates\n& executes
+
+note right of Srv
+  **Server Responsibilities:**
+  - Connection management (2-4 players)
+  - Game state authority
+  - Move validation
+  - Turn order enforcement
+  - State broadcasting
+end note
+
+note left of Cl
+  **Client Responsibilities:**
+  - Server connection
+  - UI/UX (wxWidgets)
+  - Local game state sync
+  - Move construction
+  - Player input handling
+end note
+
+note top of Msg
+  **Message Protocol:**
+  All communication via JSON
+  over TCP sockets
+  
+  Client → Server: Requests
+  Server → Client: Responses
+  Server → All: Broadcasts
+  Server → One: Private messages
+end note
+
+note bottom of GS
+  **Game Logic (Shared):**
+  - Card deck (54 cards)
+  - 4 player slots
+  - Board positions
+  - Move validation rules
+  - Turn/round/game logic
+  
+  Same code runs on both
+  client and server for
+  consistency
+end note
+
+@enduml
