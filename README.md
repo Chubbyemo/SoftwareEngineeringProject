@@ -1,5 +1,5 @@
 # Brändi Dog 
-This is the project for COURSE-SECSE-2025 in ETH.
+This is the project for the course 252-0232-00 S Software Engineering in ETH.
 
 *Where marbles race, cards rule, and friendships are temporarily ruined!*
 
